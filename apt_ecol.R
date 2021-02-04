@@ -103,6 +103,16 @@ r <- raster(res = 30, xmn=431310, xmx=509490, ymn=2281230,ymx=2325300, crs="+ini
 } # Temperatura Agrícola
 
 #### PASO 3: Generar mapas de suma de todos los rasters de criterios de aptitud ####
-# 
+# Se puede hacer con los archivos exportados mediante la calculadora raster o la herramienta de suma ponderada del software de SIG o mediante R
+# Es fundamental que el archivo generado de este paso se llame "_apt_sum.tif" para la función usada en el paso 4
+
+# Ejemplo de cómo sería en R
+sumado <- soil + Temp + preci + pend
+# setwd("directorio_de_guardado_de_la_capa")
+  writeRaster(sumado, "_apt_sum.tif", format= "GTiff", overwrite = T) # Guardado de la suma de los 4 criterios de aptitud en un directorio de destino
 
 #### PASO 4: Generar el mapa de aptitud ponderada ####
+{ # Aptitud Agrícola
+# setwd("directorio_de_guardado_de_la_capa") # Importante que este directorio contenga el archivo "_apt_sum.tif" generado del PASO  3
+  mapa_apt(n = 4, "Agricola") # n es el número de capas de criterios a considerar y "Agrícola" corresponde con el nombre del archivo de salida y el tema de la aptitud
+} # Aptitud Agrícola
