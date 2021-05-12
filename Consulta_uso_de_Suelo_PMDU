@@ -1,0 +1,203 @@
+# Ejemplo de la app funcionando
+# Visita: https://www.listendata.com/2019/07/add-loader-for-shiny-r.html
+
+# Script desarrollado por:
+# MC Luis Daniel Olivares Martínez
+# IMPLAN de Bahía de Banderas
+# Urbanista
+
+
+require(DBI)
+require(RPostgreSQL)
+require(RPostgres)
+require(sf)
+# require(dplyr)
+require(leaflet)
+require(shiny)
+
+#Conexion a la base de datos con las credenciales respectivas
+# bufer <- st_read("www/bufer_noinferidas.shp")
+# usvbb_2020<-  st_read("www/usvbb_2020.shp")
+
+fallas <- st_read("www/fallasyfrac_sgm.shp")
+pmdu <- st_read("www/pmdu_2002_exploted.shp")
+ppdu2002 <- st_read("www/ppdu2002.shp")
+zr <- st_read("www/zr.shp")
+
+# con<- dbConnect(PostgreSQL(), dbname="tablero_usosuelo",
+#                 host="192.XXX.XX.XX",
+#                 port= XXXX, #Escribir puerto de red
+#                 user="XXXXXXX", #Escribir USUARIO
+#                 password= "XXXXXX") #Escribir CONTRASEÑA
+# 
+# fallas <- st_read(con, layer = "fallasyfrac_sgm")
+# #bufer <- st_read(con, layer = "bufer_noinferidas")
+# #usvbb_2020<-  st_read(con, layer = "usvbb_2020")
+# ppdu2002 <- st_read(con, layer = "ppdu2002")
+# zr <- st_read(con, layer = "zr")
+# pmdu <- st_read(con, layer = "pmdu2002_explo")
+# Encoding(pmdu$nombre) <- "UTF-8"
+# 
+# dbDisconnect(con)
+
+ui <- bootstrapPage(
+  tags$style(type = "text/css", "html, body {width:100%;height:100%}"),
+  leafletOutput("map", width = "100%", height = "100%"),
+  absolutePanel(height = "auto", width = 450, fixed = TRUE, draggable = TRUE,
+                top = 60, left = "auto", right = 20, bottom = "auto",
+                class = "panel panel-default",
+                # h2(textOutput("uso")),
+                h3(textOutput("nombreuso")),
+                p(),
+                h4("Usos permitidos"),
+                tableOutput("tab"), p(), p(),
+                h4("Restricciones de uso"),
+                tableOutput("tab2"),
+                downloadButton("downloadData", label= "Descargar")
+                
+  )
+)
+
+server <- function(input, output, session) {
+  
+  BBIcon <- icons(
+    iconUrl = "icon.png", # o ruta a la imagen
+    iconAnchorY = 55, iconAnchorX = 29, iconWidth = 58, iconHeight = 58 # , iconAnchorX = 15
+  )
+  
+  restri <- read.csv("www/Normatividad general.csv", encoding = "UTF-8", header = F)
+  names(restri) <- restri[1,]
+  
+  clave <- restri[c(2, 4,6,5),c(2,5)]
+  clave[2] <- "-"
+  output$tab <- renderTable(colnames = F, {
+    return(clave)
+  })
+  
+  clave2 <- restri[c(2, 11,12,17),c(2,5)]
+  clave2[2] <- "-"
+  output$tab2 <- renderTable(colnames = F, {
+    return(clave2)
+  })
+  
+  click <- reactiveValues(clickedMarker=NULL)
+  
+  # uso_clave <- "H211"
+  
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addTiles(group = "Mapa base") %>%
+      addTiles(group = "Satelital",
+               options = providerTileOptions(opacity = 0.85)) %>%
+      addProviderTiles('Esri.WorldImagery', group = "Satelital",
+                       options = providerTileOptions(opacity = 0.35)) %>%
+      addProviderTiles(providers$OpenTopoMap, group='Terreno') %>%
+      setView(lng = -105.339, lat = 20.80, zoom = 12) %>%
+      
+      addPolygons(data =pmdu,
+                  label= ~clave, layerId = ~id,
+                  weight = 0.5,
+                  smoothFactor = 0.05,
+                  fillColor= ~hex,
+                  fillOpacity = 0.35,
+                  group = "PMDU 2002",
+                  labelOptions = labelOptions(textsize = "25px"),
+                  highlightOptions = highlightOptions(color = "yellow", fillColor = "white", weight = 2,
+                                                      bringToFront = TRUE)) %>%
+      
+      addMarkers(lng = -105.31824, lat = 20.75361, icon = BBIcon, group = 'A') %>% 
+      
+      addPolygons(data = ppdu2002,
+                  label= ~name,
+                  color = ~hex,
+                  smoothFactor = 0.05,
+                  fillOpacity = 0.55,
+                  labelOptions = labelOptions(textsize = "25px"),
+                  group = "Planes parciales") %>% 
+
+      addPolygons(data = zr,
+                  color = "#fb4d0c",
+                  smoothFactor = 0.05,
+                  fillOpacity = 0.75,
+                  group = "Zona de riesgo") %>% 
+            
+      addPolylines(data = fallas,
+                   color = "red",
+                   label = ~nombre,
+                   labelOptions = labelOptions(textsize = "16px"),
+                   group = "Fallas y fracturas") %>%
+      
+      # addPolygons(data = bufer, 
+      #             color = "brown",
+      #             fillOpacity = 0.35,
+      #             group = "Fallas no inferidas") %>% 
+      
+      # addPolygons(data = usvbb_2020, 
+      #             weight = 0.5,
+      #             smoothFactor = 0.05,
+      #             fillColor= ~color,
+      #             fillOpacity = 0.35,
+      #             group = "Cubierta",
+      #             label = ~cobertura, 
+      #             highlightOptions = highlightOptions(color = "white", fillColor = "white", weight = 2,
+      #                                                 bringToFront = TRUE)) %>% 
+      
+      addLayersControl(
+        baseGroups = c("Mapa base","Satelital","Terreno"),
+        overlayGroups = c("PMDU 2002", "Planes parciales", "Zona de riesgo", "Fallas y fracturas"), #, "Cubierta", "Fallas no inferidas"
+        options = layersControlOptions(collapsed = FALSE),
+        position = "bottomright") %>% 
+      
+      # hideGroup("Cubierta") %>% 
+      hideGroup("Fallas y fracturas") %>% 
+      # hideGroup("Fallas no inferidas") %>% 
+      hideGroup("Zona de riesgo")
+      
+  }) # fin de renderizado de mapa
+  
+  
+  observeEvent(input$map_shape_click, {
+    
+    click$clickedMarker <- input$map_shape_click
+    
+    leafletProxy('map') %>% clearGroup('A') %>%
+      addMarkers(lng = click$clickedMarker$lng, lat = click$clickedMarker$lat, icon = BBIcon, group = 'A')
+    
+    event <- input$map_shape_click
+    output$uso <- renderText(pmdu$clave[pmdu$id == event$id])
+    output$nombreuso <- renderText(pmdu$nombre[pmdu$id == event$id])
+    uso_clave <- pmdu$clave[pmdu$id == event$id]
+    
+    output$tab <- renderTable(colnames = F, {
+      clave[2] <- NULL
+      clave <- cbind(clave, ' ' = restri[c(2, 4,6,5),
+                                            which(pmdu$clave[pmdu$id == event$id] == names(restri))])
+      return(clave)
+    })
+    
+    output$tab2 <- renderTable(colnames = F, {
+      clave2[2] <- NULL
+      clave2 <- cbind(clave2, ' ' = restri[c(2, 11,12,17),
+                                            which(pmdu$clave[pmdu$id == event$id] == names(restri))])
+      return(clave2)
+      
+    })
+    
+    output$downloadData <- downloadHandler(contentType = "application/pdf",
+                                           filename = function() {
+                                             paste0(uso_clave, ".pdf")}, #pmdu$nombre[pmdu$id == event$id]
+                                           content = function(file) {
+                                             fpath <- (paste0("www/", uso_clave, ".pdf"))
+                                             file.copy(fpath, file)
+                                             return(file)
+                                           })
+   # print( output$uso)# (pmdu$clave[pmdu$id == event$id]))# 
+  
+  })
+  
+} #Fin de servidor
+
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
