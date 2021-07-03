@@ -71,16 +71,16 @@ server <- function(input, output, session){
       dplyr::filter(adeudo >= input$adeudo[1] & adeudo <= input$adeudo[2] & grepl(input$anno, years_debt) ) #  & giro == input$giro
   })
   
-  output$monto <- renderValueBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+  output$monto <- renderValueBox(
     valueBox(paste0('$ ', sum(deuda$Importe) %>% format(nsmall = 2, big.mark = ",")), "Total de adeudos", 
              color = "red", icon = icon("usd", lib = "glyphicon")) # )#
   ) 
-  output$deudor <- renderInfoBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+  output$deudor <- renderInfoBox(
     infoBox("Número de adeudos",
             tags$p(length(unique(deuda$NumeroLicencia[which(deuda$Importe > 1)])), style = "font-size: 200%;"),
              color = 'orange', icon = icon("pawn", lib = "glyphicon"))
   )
-  output$lics <- renderValueBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+  output$lics <- renderValueBox(
     valueBox((length(anti$NumeroLicencia) + 
                 length(licencias$licencia[!(licencias$licencia %in% anti$licencia)]) ) %>% format(big.mark = ","), 
              "Número de licencias", color = "blue", icon = icon("briefcase", lib = "glyphicon")) # )#
