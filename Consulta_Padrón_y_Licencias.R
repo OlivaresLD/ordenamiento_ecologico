@@ -1,7 +1,5 @@
-# agregar filtro por giro y dejar todos en caso de estar en blanco
-
-require("DBI"); require("RPostgreSQL"); require( "RPostgres")
-require( "leaflet"); require("sf"); require("dplyr")
+require("DBI"); require("RPostgreSQL"); require( "RPostgres"); require("odbc"); require("RODBC")
+require( "leaflet"); require("sf"); require("dplyr"); require("htmltools")
 require("htmltools"); require("shiny"); require("shinydashboard")
 
 conexion<- dbConnect(PostgreSQL(), dbname="BASE-DE-DATOS",
@@ -9,7 +7,9 @@ conexion<- dbConnect(PostgreSQL(), dbname="BASE-DE-DATOS",
                      port= 5432,
                      user="Xxxxxxx",
                      password= "xxxxxx")
-# as.data.frame(sort(dbListTables(conexion) ))
+
+con <- odbcConnect("xxxxxxxxx", uid="XXXXXX", pwd = "xxXXXXX") # Mediante conexión DNS establecida previamente para SQL Server
+
 
 licencias <- st_read(conexion, "pl_licencias") %>% st_transform(4326)
 for(i in c(2,5:10,14)){Encoding(licencias[[i]]) <- 'UTF-8'}
@@ -17,86 +17,100 @@ licencias$adeudo <- as.numeric(licencias$adeudo)
 licencias$contribuyente_sexo <- factor(licencias$contribuyente_sexo)
 licencias$l_an <- substr(licencias$years_debt,1,4) %>% as.numeric()
 
-# annios <- strsplit(licencias$years_debt, ",") %>% unlist() %>% as.numeric()
+anti <- sqlQuery(con, "SELECT * FROM dbo.Licencias")
+deuda <- sqlQuery(con, "SELECT * FROM dbo.Adeudos")
 
-licencias_df <- st_set_geometry(licencias, NULL)
-licencias_df[c('x','y')]  <- licencias %>% st_transform(4326) %>% st_coordinates()
+anti$licencia <- sprintf("%010d", anti$NumeroLicencia)
+deuda$licencia <- deuda$NumeroLicencia %>% sprintf("%010d",.)
 
 dbDisconnect(conexion) # quitar cuando se tenga la actualización cada cierto tiempo
+close(con)
 
-
-ui <- fluidPage(
-  titlePanel("Aplicación de consulta de Padrón y Licencias"),
-  sidebarLayout(
-    sidebarPanel(
-      # p(), br(), br(), br(), br(),
-      p(br(), tags$b("Para usar esta aplicación selecciona el monto de adeudo de interés, el año desde el último pago y el tipo de giro (si no se selecciona se visualizan todos los registros.")), br(),
-      p("Verás del lado derecho de la pantalla cómo se actualizan los puntos en el mapa con las licencias que cuenten con registro de coordenadas, en la tabla inferior verás un resumen de todos los registros"),
-      br(), p(),
-      sliderInput("adeudo",
-                  "1) Seleccione montos de adeudo de interés",
-                  ticks= TRUE,
-                  min = 0,
-                  max = max(licencias$adeudo) %>% round()+1,
-                  value = c(0,max(licencias$adeudo) %>% round()+1),
-                  # value = sort(sample(max(licencias$adeudo), 2)),
-                  step = 500), br(),
-      selectInput('anno', "2) Seleccione un año desde el último pago", 
-                  choices = seq(max(licencias$l_an, na.rm = TRUE), min(licencias$l_an, na.rm = TRUE)), 
-                  multiple = FALSE),
-      # selectInput('giro', "3) Escriba su giro de interés",
-      #             choices = sort(unique(licencias$giro)), multiple = TRUE),br()
-          ),
-    
-    mainPanel(
-      # tableOutput("tabla"),
-      valueBox(paste0('$ ', format(sum(licencias$adeudo),
-                                   nsmall = 2, big.mark = ",")), "Total de adeudos", color = "red"),
-      valueBox(length(unique(licencias$nombre[which(licencias$adeudo > 0)])) ,
-                                               "Número de deudores", color = 'orange'),
-      valueBox(licencias$fecha_alta %>% max() %>% format("%d de %B de %Y") , 
-                                               "Fecha de última licencia", color = 'blue'),
+ui <- dashboardPage(skin = "black",
+  dashboardHeader(title = "Aplicación de consulta de Padrón y Licencias", disable = TRUE),
+  dashboardSidebar(
+    p(br(), tags$b("Para usar esta aplicación da click en los puntos del mapa para conocer los datos de adeudos y licencias. Puedes filtrar la información seleccionando un monto de adeudo de interés, así como el año desde el último pago.")), br(),
+    p("Verás del lado derecho de la pantalla cómo se actualizan los puntos en el mapa con las licencias que cuenten con registro de coordenadas. El tamaño del círculo indica el monto del adeudo y entre más claro su color, más viejo el registro de adeudo."),
+    br(), p(),
+    sliderInput("adeudo",
+                "1) Seleccione montos de adeudo de interés",
+                ticks= TRUE,
+                min = 0,
+                max = max(licencias$adeudo) %>% round()+1,
+                value = c(0,max(licencias$adeudo) %>% round()+1),
+                step = 5000
+                ), br(),
+    tags$style(type = "text/css",
+               HTML(".irs--shiny .irs-grid-text { color: white }", ".irs--shiny .irs-from, .irs--shiny .irs-to, .irs--shiny .irs-single {background: transparent}")),
+    selectInput('anno', "2) Seleccione un año desde el último pago", 
+                choices = seq(max(licencias$l_an, na.rm = TRUE), min(licencias$l_an, na.rm = TRUE)), 
+                multiple = FALSE)
+    # selectInput('giro', "3) Escriba su giro de interés",
+    #             choices = sort(unique(licencias$giro)), multiple = TRUE),br()
+  ),
+  dashboardBody(
+    fluidRow(
+      valueBoxOutput("monto", width = 4),
+      infoBoxOutput("deudor", width = 3),
+      valueBoxOutput("lics", width = 2),
+      valueBoxOutput("avan", width = 3),
       br(),
-      leafletOutput("mymap", height = 700), #, height = '100%'
+      leafletOutput("mymap", height = 600), #, height = '100%'
       p(),
-      valueBox(dim(licencias)[1] , "Registros georreferenciados", color = "yellow"),
-      valueBox(length(licencias$nombre[which(licencias$adeudo > 0)]) ,
-               "Número de deudas"),
-      valueBox(licencias$fecha_alta %>% min() %>% format("%d de %B de %Y") , 
-               "Fecha de licencia más antigua", color = 'blue')
+      valueBoxOutput("montogeo", width = 4),
+      infoBoxOutput("deudorgeo", width = 3),
+      infoBoxOutput("numgeo", width = 2),
+      valueBoxOutput("alta", width = 3)
     )
   )
 )
 
 server <- function(input, output, session){
-    # licencias <- reactivePoll(1.8e6, test, lic) # actualización cada 5hrs 1.8e6
-    # preparar función test (comparar dim)
-    # preparar función lic para obtener todos los datos
- 
   filtro <- reactive({
     licencias %>%
       dplyr::filter(adeudo >= input$adeudo[1] & adeudo <= input$adeudo[2] & grepl(input$anno, years_debt) ) #  & giro == input$giro
   })
   
-  # IF(isTruthy(input$giro)){
-  #   filtro <- reactive({
-  #     licencias %>%
-  #       dplyr::filter(between(adeudo, input$adeudo[1], input$adeudo[2]) & grepl(input$anno, years_debt) & giro == input$giro)
-  #   })
-  # } ELSE {
-  #   filtro <- reactive({
-  #     licencias %>%
-  #       dplyr::filter(between(adeudo, input$adeudo[1], input$adeudo[2]) & grepl(input$anno, years_debt))
-  #   })
-  # }
-  
-  
-  filtro_df <- reactive(st_set_geometry(filtro(), NULL))
-
-  output$tabla <- renderTable(colnames = TRUE, {head(filtro_df())})
+  output$monto <- renderValueBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+    valueBox(paste0('$ ', sum(deuda$Importe) %>% format(nsmall = 2, big.mark = ",")), "Total de adeudos", 
+             color = "red", icon = icon("usd", lib = "glyphicon")) # )#
+  ) 
+  output$deudor <- renderInfoBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+    infoBox("Número de adeudos",
+            tags$p(length(unique(deuda$NumeroLicencia[which(deuda$Importe > 1)])), style = "font-size: 200%;"),
+             color = 'orange', icon = icon("pawn", lib = "glyphicon"))
+  )
+  output$lics <- renderValueBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+    valueBox((length(anti$NumeroLicencia) + 
+                length(licencias$licencia[!(licencias$licencia %in% anti$licencia)]) ) %>% format(big.mark = ","), 
+             "Número de licencias", color = "blue", icon = icon("briefcase", lib = "glyphicon")) # )#
+  )
+  av <- length(licencias$licencia) / (length(anti$NumeroLicencia) + length(licencias$licencia[!(licencias$licencia %in% anti$licencia)]))
+  output$avan <- renderValueBox( ## Actulizar con acceso a datos de padrón y licencias oficial
+    valueBox(value = sprintf("%0.1f%%", av*100) ,
+             "Porcentaje de avance georreferenciado", color = 'green', icon = icon("check", lib = "glyphicon"))
+  )
+  output$montogeo <- renderValueBox(
+    valueBox(paste0('$ ', format(sum(licencias$adeudo), nsmall = 2, big.mark = ",")), 
+             "Total de adeudos georreferenciados", color = "red", icon = icon("usd", lib = "glyphicon"))
+  )
+  output$deudorgeo <- renderInfoBox(
+    infoBox("Adeudos georreferenciados", 
+            tags$p(length(licencias$nombre[which(licencias$adeudo > 0)]), style = "font-size: 200%;"),
+            color = 'yellow', icon = icon("bishop", lib = "glyphicon"))
+  )
+  output$numgeo <- renderValueBox(
+    valueBox(dim(licencias)[1] %>% format(big.mark = ",") , "Licencias georreferenciadas", 
+             color = "light-blue", icon = icon("map-marker", lib = "glyphicon"))
+  )
+  output$alta <- renderInfoBox(
+    infoBox("Fecha de última licencia", 
+            tags$p(licencias$fecha_alta %>% max() %>% format("%d de %B de %Y"), style = "font-size: 150%;"),
+            color = 'navy')
+  )
   
   output$mymap<- renderLeaflet({
-    variable <- paste0('Adeudo: <b style="color:#890a00;"> $ ',format(filtro()$adeudo, nsmall = 1, big.mark = ","),'</b> <br> Nombre del comercio: ',filtro()$nombre, ' <br> Número de licencia: <b>', filtro()$licencia,'</b> <br> Fecha de alta: <span style="color:blue;">', filtro()$fecha_alta %>% format("%d de %B de %Y"), '</span>', '<br><br> Giro: ', filtro()$giro, ' <br> Localidad: ', filtro()$poblacion, ' <br> Año desde el último pago: ', filtro()$l_an) %>% lapply(htmltools::HTML)
+    variable <- paste0('Adeudo: <b style="color:#890a00;"> $ ',format(filtro()$adeudo, nsmall = 1, big.mark = ","),'</b> <br> Nombre del comercio: ',filtro()$nombre, ' <br> Número de licencia: <b>', filtro()$licencia,'</b> <br> Fecha de alta: <span style="color:blue;">', filtro()$fecha_alta %>% format("%d de %B del %Y"), '</span>', '<br><br> Giro: ', filtro()$giro, ' <br> Localidad: ', filtro()$poblacion, ' <br> Año desde el último pago: ', filtro()$l_an) %>% lapply(htmltools::HTML)
     pale <- colorBin('Reds', filtro()$l_an, bins = 5)
     
     leaflet(filtro()) %>%
@@ -104,7 +118,6 @@ server <- function(input, output, session){
       addTiles(options = providerTileOptions(opacity = 0.9)) %>%
       addProviderTiles('Esri.WorldImagery',
                        options = providerTileOptions(opacity = 0.45)) %>%
-      # addProviderTiles('Esri.WorldImagery', group = "ESRI Sat") %>%
       setView(lng = -105.262, lat = 20.820, zoom = 11) %>%
       addCircleMarkers(
         color = ~pale(l_an),
